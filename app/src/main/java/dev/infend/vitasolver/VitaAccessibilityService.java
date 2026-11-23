@@ -71,7 +71,8 @@ public final class VitaAccessibilityService extends AccessibilityService {
         handler.removeCallbacks(tick);
         if(prefs().getBoolean("running",false))handler.postDelayed(tick,250);
     }
-    private final Runnable tick=()->{
+    private final Runnable tick=this::runTick;
+    private void runTick(){
         if(busy||!prefs().getBoolean("running",false)){if(busy)handler.postDelayed(tick,400);return;}
         AccessibilityNodeInfo root=getRootInActiveWindow();
         if(root==null||root.getPackageName()==null||!GAME.contentEquals(root.getPackageName())){
@@ -110,7 +111,7 @@ public final class VitaAccessibilityService extends AccessibilityService {
                 }
             });
         }catch(Exception err){busy=false;publish(this,"Не удалось захватить экран: "+err.getMessage());handler.postDelayed(tick,1500);}
-    };
+    }
 
     private void onDetection(TileVision.Detection seen){
         busy=false;
