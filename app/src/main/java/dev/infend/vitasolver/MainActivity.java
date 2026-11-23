@@ -135,7 +135,7 @@ public final class MainActivity extends Activity {
         spaced(ota,label("GitHub Releases · постоянная подпись · SHA-256",12,MUTED,false),8);
         Button check=button("↻  ПРОВЕРИТЬ ОБНОВЛЕНИЕ");spaced(ota,check,12);
         check.setOnClickListener(v->checkUpdate());
-        spaced(root,label("Сервис обрабатывает скриншоты только на устройстве. Для скрытых плиток, рекламы и нестандартных раскладок автоматическое прохождение пока не гарантировано.",12,MUTED,false),20);
+        spaced(root,label("Сервис обрабатывает скриншоты только на устройстве. Режим с верхним лотком распознаётся отдельно. Для скрытых плиток, рекламы и нестандартных раскладок автоматическое прохождение пока не гарантировано.",12,MUTED,false),20);
         setContentView(scroll);
     }
     private void toggle(LinearLayout box,String title,String pref,boolean def){

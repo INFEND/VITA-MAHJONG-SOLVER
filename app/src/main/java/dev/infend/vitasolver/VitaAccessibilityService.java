@@ -117,7 +117,7 @@ public final class VitaAccessibilityService extends AccessibilityService {
         busy=false;
         if(!prefs().getBoolean("running",false))return;
         List<Tile> tiles=seen.tiles;
-        if(tiles.size()<2){
+        if(seen.trayMode ? (tiles.isEmpty() && seen.tray.isEmpty()) : tiles.size()<2){
             failures++;
             if(prefs().getBoolean("auto_next",true)&&clickNextLevel()){
                 publish(this,"Переход к следующему уровню");handler.postDelayed(tick,1800);return;
@@ -126,7 +126,7 @@ public final class VitaAccessibilityService extends AccessibilityService {
             if(failures>=9){stop("Пауза: не удалось распознать поле");return;}
             handler.postDelayed(tick,1500);return;
         }
-        String board=fingerprint(tiles);
+        String board=fingerprint(tiles,seen.tray);
         if(board.equals(lastBoard)){
             // Either the previous pair did not disappear, or the game has settled.
             failures++;
@@ -134,28 +134,54 @@ public final class VitaAccessibilityService extends AccessibilityService {
         }else{banned.clear();failures=0;}
         lastBoard=board;lastCount=tiles.size();
         float threshold=prefs().getInt("tolerance",28)/100f;
-        MahjongSolver.Move move=MahjongSolver.findMove(tiles,threshold,banned);
+        MahjongSolver.Move storedMatch=seen.trayMode
+            ?MahjongSolver.findTrayMatch(seen.tray,tiles,Math.min(threshold,0.24f),banned)
+            :null;
+        MahjongSolver.Move move=storedMatch!=null ? storedMatch
+            : (seen.trayMode && seen.tray.size()>=3
+                ?null:MahjongSolver.findMove(tiles,threshold,banned));
         if(move==null){
-            if(prefs().getBoolean("auto_next",true)&&clickNextLevel()){
+            if(tiles.isEmpty() && prefs().getBoolean("auto_next",true) && clickNextLevel()){
                 publish(this,"Продолжаю прохождение");handler.postDelayed(tick,1600);return;
             }
-            stop("Пауза: нет уверенно распознанной свободной пары ("+tiles.size()+" плиток)");return;
+            stop(seen.trayMode
+                ?"Пауза: нет безопасного совпадения для лотка ("+seen.tray.size()+"/4)."
+                :"Пауза: нет уверенно распознанной свободной пары ("+tiles.size()+" плиток)");
+            return;
         }
-        banned.add(MahjongSolver.pairKey(move.first,move.second));
-        publish(this,"Ход "+(++iterations)+" · плиток: "+tiles.size()+" · сходство: "+Math.round((1-move.distance)*100)+"%");
+        boolean fromTray=storedMatch!=null;
+        if(fromTray)banned.add("T:"+move.first.id+":"+move.second.id);
+        else banned.add(MahjongSolver.pairKey(move.first,move.second));
+        publish(this,"Ход "+(++iterations)+" · "+(seen.trayMode?"лоток "+seen.tray.size()+"/4":"поле")+
+            " · плиток: "+tiles.size()+" · сходство: "+Math.round((1-move.distance)*100)+"%");
         busy=true;
         final int delay=prefs().getInt("tap_delay",280);
-        tap(move.first.centerX()/seen.scale,move.first.centerY()/seen.scale,()->
-            handler.postDelayed(()->tap(move.second.centerX()/seen.scale,move.second.centerY()/seen.scale,()->{
-                busy=false;lastAction=System.currentTimeMillis();handler.postDelayed(tick,Math.max(400,delay));
-            }),delay));
+        if(seen.trayMode) {
+            // After EVERY tap re-read the tray and the board: the other tile may move.
+            Tile target=fromTray?move.second:move.first;
+            tap(target.centerX()/seen.scale,target.centerY()/seen.scale,()->{
+                busy=false;lastAction=System.currentTimeMillis();
+                handler.postDelayed(tick,Math.max(400,delay));
+            });
+        }else{
+            tap(move.first.centerX()/seen.scale,move.first.centerY()/seen.scale,()->
+                handler.postDelayed(()->tap(move.second.centerX()/seen.scale,move.second.centerY()/seen.scale,()->{
+                    busy=false;lastAction=System.currentTimeMillis();handler.postDelayed(tick,Math.max(400,delay));
+                }),delay));
+        }
     }
 
-    private String fingerprint(List<Tile> tiles){
+    private String fingerprint(List<Tile> tiles,List<Tile> tray){
         long acc=1469598103934665603L;
         for(Tile t:tiles){
             acc^=t.centerX();acc*=1099511628211L;
             acc^=t.centerY();acc*=1099511628211L;
+            for(int i=0;i<t.signature.length;i+=61){acc^=(long)(t.signature[i]*100);acc*=1099511628211L;}
+        }
+        // A tray update counts as a changed board even if visible field tiles remain.
+        for(Tile t:tray){
+            acc^=0x9e3779b9L;acc*=1099511628211L;
+            acc^=t.centerX();acc*=1099511628211L;
             for(int i=0;i<t.signature.length;i+=61){acc^=(long)(t.signature[i]*100);acc*=1099511628211L;}
         }
         return Long.toHexString(acc);

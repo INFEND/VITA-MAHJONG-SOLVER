@@ -49,6 +49,25 @@ public final class MahjongSolver {
         return (float)(diff/(ink+0.001));
     }
 
+    /**
+     * Four-slot variant: prefer matching a tile that is already stored.
+     * In this mode one board tap is a full move; tapping a second tile blindly
+     * can overfill the tray and make the level impossible.
+     */
+    public static Move findTrayMatch(List<Tile> tray,List<Tile> tiles,
+                                     float maxDistance,Set<String> banned) {
+        Move best=null;
+        for(Tile stored:tray)for(Tile available:tiles) {
+            if(!isFree(available,tiles))continue;
+            if(banned.contains("T:"+stored.id+":"+available.id))continue;
+            float d=distance(stored.signature,available.signature);
+            if(d>maxDistance)continue;
+            if(best==null || d<best.distance)
+                best=new Move(stored,available,d,4.0*(1-d));
+        }
+        return best;
+    }
+
     public static Move findMove(List<Tile> tiles,float maxDistance,Set<String> banned) {
         List<Tile> free=new ArrayList<>();
         for(Tile t:tiles) if(isFree(t,tiles)) free.add(t);

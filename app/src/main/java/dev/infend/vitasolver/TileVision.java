@@ -21,7 +21,12 @@ public final class TileVision {
         public final List<Tile> tiles;
         public final float scale;
         public final int visibleCandidates;
-        Detection(List<Tile> tiles,float scale,int count){this.tiles=tiles;this.scale=scale;visibleCandidates=count;}
+        public final List<Tile> tray;
+        public final boolean trayMode;
+        Detection(List<Tile> tiles,float scale,int count,List<Tile> tray,boolean trayMode){
+            this.tiles=tiles;this.scale=scale;visibleCandidates=count;
+            this.tray=tray;this.trayMode=trayMode;
+        }
     }
 
     public static Detection detect(Bitmap screenshot) {
@@ -32,6 +37,9 @@ public final class TileVision {
         int[] px=new int[w*h];
         source.getPixels(px,0,w,0,0,w,h);
         if(source!=screenshot)source.recycle();
+        // The four-slot blue collector is a separate game mode.
+        // Its already-selected tiles MUST be included in subsequent matching.
+        boolean trayMode=hasTray(px,w,h);
         byte[] mask=new byte[w*h];
         for(int y=(int)(h*0.07f);y<(int)(h*0.92f);y++){
             int off=y*w;
@@ -64,14 +72,20 @@ public final class TileVision {
             if((float)tail/(tw*th)<0.28f)continue;
             candidates.add(new RectCandidate(minX,minY,tw,th,tail));
         }
-        if(candidates.isEmpty())return new Detection(Collections.emptyList(),factor,0);
-        // Reject outliers (text panels, small buttons, backgrounds): real tiles repeat a size.
+        // Estimate board tile dimensions using ONLY the actual playfield.
+        // A stored tray tile is smaller and otherwise shifts the median down.
+        List<RectCandidate> boardCandidates=new ArrayList<>();
+        for(RectCandidate c:candidates)
+            if(c.y>h*0.245f && c.y<h*0.86f)boardCandidates.add(c);
+        if(boardCandidates.isEmpty())
+            return new Detection(Collections.emptyList(),factor,0,Collections.emptyList(),trayMode);
+
         List<Integer> widths=new ArrayList<>(),heights=new ArrayList<>();
-        for(RectCandidate c:candidates){widths.add(c.w);heights.add(c.h);}
+        for(RectCandidate c:boardCandidates){widths.add(c.w);heights.add(c.h);}
         Collections.sort(widths);Collections.sort(heights);
         int medianW=widths.get(widths.size()/2),medianH=heights.get(heights.size()/2);
         List<RectCandidate> selected=new ArrayList<>();
-        for(RectCandidate c:candidates){
+        for(RectCandidate c:boardCandidates){
             if(c.w<medianW*0.70||c.w>medianW*1.35||c.h<medianH*0.70||c.h>medianH*1.35)continue;
             selected.add(c);
         }
@@ -84,7 +98,34 @@ public final class TileVision {
             float[] signature=signature(px,w,h,c);
             result.add(new Tile(result.size(),c.x,c.y,c.w,c.h,signature));
         }
-        return new Detection(result,factor,candidates.size());
+        List<Tile> tray=new ArrayList<>();
+        if(trayMode) {
+            List<RectCandidate> trayCandidates=new ArrayList<>();
+            for(RectCandidate c:candidates) {
+                if(c.y<h*0.075f || c.y>h*0.23f)continue;
+                if(c.x<w*0.18f || c.x>w*0.82f)continue;
+                if(c.w<medianW*0.48f || c.w>medianW*1.12f ||
+                   c.h<medianH*0.48f || c.h>medianH*1.12f)continue;
+                trayCandidates.add(c);
+            }
+            trayCandidates.sort(Comparator.comparingInt(c->c.x));
+            for(RectCandidate c:trayCandidates)
+                tray.add(new Tile(tray.size(),c.x,c.y,c.w,c.h,signature(px,w,h,c)));
+        }
+        return new Detection(result,factor,boardCandidates.size(),tray,trayMode);
+    }
+
+    /** The blue tray occupies the screen's upper center; not present in classic Mahjong. */
+    private static boolean hasTray(int[] pixels,int width,int height) {
+        int matched=0,examined=0;
+        for(int y=(int)(height*0.095f);y<(int)(height*0.21f);y+=3) {
+            for(int x=(int)(width*0.20f);x<(int)(width*0.80f);x+=3) {
+                int c=pixels[y*width+x],r=Color.red(c),g=Color.green(c),b=Color.blue(c);
+                examined++;
+                if(b>85 && b>r*1.3f && b>g*1.09f)matched++;
+            }
+        }
+        return examined>0 && matched>examined*0.025f;
     }
 
     private static float[] signature(int[] pixels,int width,int height,RectCandidate c) {

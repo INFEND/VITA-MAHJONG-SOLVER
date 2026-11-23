@@ -22,7 +22,14 @@ public class SolverSelfTest {
         require(choice!=null && choice.first.id==0 && choice.second.id==2,"Two free equal edge pieces");
         Set<String> banned=MahjongSolver.emptyBanList();banned.add(MahjongSolver.pairKey(choice.first,choice.second));
         require(MahjongSolver.findMove(open,0.2f,banned)==null,"Ban failed candidate");
-        System.out.println("SolverSelfTest: 9 assertions passed");
+        Tile held=tile(30,200,0);
+        List<Tile> tray=List.of(held);
+        var trayChoice=MahjongSolver.findTrayMatch(tray,open,0.2f,MahjongSolver.emptyBanList());
+        require(trayChoice!=null && trayChoice.first.id==30,"Choose stored face first");
+        require(trayChoice.second.id==0 || trayChoice.second.id==2,"Match stored tile to open board");
+        require(MahjongSolver.findTrayMatch(tray,List.of(tile(44,0,1)),0.2f,
+            MahjongSolver.emptyBanList())==null,"Reject unmatched stored face");
+        System.out.println("SolverSelfTest: 12 assertions passed");
     }
     private static void require(boolean c,String message){if(!c)throw new AssertionError(message);}
 }
