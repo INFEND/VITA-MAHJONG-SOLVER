@@ -1,0 +1,93 @@
+name: VITA SOLVER · Android OTA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-ota.yml'
+      - 'app/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'release_notes/**'
+      - 'settings.gradle'
+      - 'build.gradle'
+      - 'gradle.properties'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vita-solver-ota
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Install Android build platform
+        shell: bash
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Gradle 9.6.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.1'
+      - name: Unit tests (pure Java solver)
+        run: bash scripts/test_core.sh
+      - name: Build unsigned release APK
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Sign official APK with pinned identity
+        env:
+          VITA_SIGNING_BUNDLE: ${{ secrets.VITA_SIGNING_BUNDLE }}
+        run: python3 scripts/sign_release.py
+      - name: Generate OTA JSON and cumulative history
+        id: metadata
+        run: |
+          python3 scripts/make_manifest.py \
+            --apk dist/VITA-SOLVER.apk \
+            --aapt "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --output dist/update.json \
+            --github-output "$GITHUB_OUTPUT"
+          python3 -m json.tool dist/update.json >/dev/null
+      - name: Save testable artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VITA-SOLVER-APK-OTA
+          path: dist/
+          if-no-files-found: error
+      - name: Publish only a new version tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.repository.private }}" == "true" ]]; then
+            echo '::error::OTA requires a public repository for anonymous app downloads'
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Version $TAG already exists. No duplicate release."
+            exit 0
+          fi
+          gh release create "$TAG" dist/VITA-SOLVER.apk dist/update.json \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "VITA SOLVER $VERSION" --notes-file "release_notes/$TAG.txt" --latest
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | tee /tmp/released-assets
+          grep -Fxq VITA-SOLVER.apk /tmp/released-assets
+          grep -Fxq update.json /tmp/released-assets

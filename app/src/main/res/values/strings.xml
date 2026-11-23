@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">VITA SOLVER</string>
+    <string name="accessibility_description">Локальное распознавание поля Vita Mahjong, поиск пар и автоматическое касание плиток после включения пользователем.</string>
+</resources>
